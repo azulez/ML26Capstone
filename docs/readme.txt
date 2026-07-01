@@ -1,0 +1,1 @@
+Stub location for project-associated documents.
