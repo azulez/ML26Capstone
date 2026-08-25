@@ -1,0 +1,15 @@
+[Unit]
+Description=ml26-fintc earnings-call inference API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/app/server
+EnvironmentFile=/etc/ml26-fintc.env
+ExecStart=/opt/app/.venv/bin/gunicorn -w 1 --timeout 120 -b 0.0.0.0:5000 app:app
+Restart=on-failure
+RestartSec=5
+User=ec2-user
+
+[Install]
+WantedBy=multi-user.target

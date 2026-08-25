@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Earnings-call excess-return inference API: an always-on EC2 instance
+  running the Flask app in server/app.py (speaker-turn attention-pooling
+  model), gated by a shared API key. No auth beyond the API key -- this is
+  a demo, not access control. See docs/deployment.md. Plain CloudFormation
+  (no SAM/Serverless transform needed once there's no Lambda/API Gateway).
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: c6i.large
+    Description: >
+      Sized for the ~2.5GB peak RSS observed during a single real inference
+      run (single gunicorn worker). Non-burstable (not t3.*) so sustained
+      FinBERT batches don't run into CPU-credit throttling.
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  CodeBucketName:
+    Type: String
+    Description: S3 bucket holding the app code tarball (created by deploy.sh, not by this stack).
+  EnableBillingAlarm:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Create a CloudWatch billing alarm + SNS email subscription.
+  AlarmEmail:
+    Type: String
+    Default: ""
+    Description: Email to notify when EstimatedCharges crosses the threshold. Required if EnableBillingAlarm is true.
+  BillingAlarmThresholdUsd:
+    Type: Number
+    Default: 75
+
+Conditions:
+  CreateBillingAlarm: !Equals [!Ref EnableBillingAlarm, "true"]
+
+Resources:
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound HTTP to the Flask app; SSH not opened (SSM used instead).
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          CidrIp: 0.0.0.0/0
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ReadCodeBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${CodeBucketName}/*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: ml26-fintc-inference
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y gcc
+          mkdir -p /opt/app
+          chown ec2-user:ec2-user /opt/app
+          curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
+          # Installed as ec2-user (not root): the venv's python ends up
+          # symlinked into this cache, and /root has no group/other access,
+          # so root-installed toolchains aren't traversable by ec2-user.
+          runuser -l ec2-user -c 'uv python install 3.12'
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref Instance
+      Domain: vpc
+
+  BillingAlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: CreateBillingAlarm
+
+  BillingAlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: CreateBillingAlarm
+    Properties:
+      TopicArn: !Ref BillingAlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  BillingAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateBillingAlarm
+    Properties:
+      AlarmDescription: Fires when estimated AWS charges cross the configured threshold.
+      Namespace: AWS/Billing
+      MetricName: EstimatedCharges
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Statistic: Maximum
+      Period: 21600
+      EvaluationPeriods: 1
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: !Ref BillingAlarmThresholdUsd
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      TreatMissingData: notBreaching
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  PublicIp:
+    Value: !Ref ElasticIp
+  ApiInvokeUrl:
+    Description: Invoke URL for the /predict endpoint
+    Value: !Sub "http://${ElasticIp}:5000/predict"

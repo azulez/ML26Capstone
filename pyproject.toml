@@ -1,0 +1,32 @@
+[project]
+name = "ml2026"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "autogluon-tabular>=1.2",
+    "boto3>=1.43.75",
+    "flasgger>=0.9.7.1",
+    "flask>=3.1.3",
+    "gunicorn>=26.2.0",
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.1",
+    "optuna>=4.0",
+    "pandas>=2.2",
+    "pyarrow>=17.0",
+    "python-dateutil>=2.9",
+    "requests>=2.34.2",
+    "scikit-learn>=1.5",
+    "seaborn>=0.13",
+    "torch>=2.13.0",
+    "tqdm>=4.66",
+    "transformers>=5.14.1",
+    "yfinance>=0.2.50",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

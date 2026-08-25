@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Transcript Format Examples</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  pre { background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem 1rem; overflow-x: auto; font-size: 0.85rem; }
+  .example { margin-top: 2rem; }
+  .example h3 { margin-bottom: 0.25rem; }
+  .example p { margin-top: 0.25rem; color: #444; }
+  button.copy { margin-top: 0.5rem; padding: 0.4rem 0.8rem; font-size: 0.85rem; cursor: pointer; }
+  code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
+  .rules { background: #fff8e1; border: 1px solid #f0c040; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.9rem; }
+  a.back { display: inline-block; margin-top: 2rem; }
+</style>
+</head>
+<body>
+
+<h1>Transcript Format Examples</h1>
+<p>The model splits transcript text into speaker turns using a simple heuristic
+   parser (<code>src/modeling/turns.py</code>). It expects Motley-Fool-style
+   formatting, not arbitrary dialogue notation -- the examples below are all
+   known to parse successfully. Click "Copy" and paste one into the
+   <a href="index.html">main page</a> to try it.</p>
+
+<div class="rules">
+  <strong>Header line rules</strong> (a line naming who's speaking, followed by
+  their turn's text on the next line(s)):
+  <ul>
+    <li>Must contain a literal <code>" -- "</code> (space, two hyphens, space)
+      separating the speaker from their title, e.g. <code>Jane Doe -- Chief
+      Executive Officer</code></li>
+    <li>Must start with an uppercase letter</li>
+    <li>Must <strong>not</strong> end in sentence punctuation
+      (<code>. ? ! , : ;</code>) -- this is the most common mistake:
+      <code>"CEO: some text"</code> is not recognized as a header</li>
+    <li><code>Operator</code> and <code>Interviewer</code> are also recognized
+      as bare, title-less headers on their own line</li>
+  </ul>
+  Anything that doesn't match a header is treated as body text for whichever
+  speaker's turn is currently open -- a transcript with zero valid headers
+  parses to zero turns and the API returns "No speaker turns found".
+</div>
+
+<div class="example">
+  <h3>1. Minimal</h3>
+  <p>The smallest input that parses: one header, one line of text.</p>
+  <pre id="ex1">Jane Doe -- Chief Executive Officer
+This is a smoke test.</pre>
+  <button class="copy" data-target="ex1">Copy</button>
+</div>
+
+<div class="example">
+  <h3>2. Multiple speakers</h3>
+  <p>Each new header starts a new turn; role is inferred from the title
+     (<code>classify_role</code> in <code>src/modeling/turns.py</code>) --
+     here, CEO and CFO.</p>
+  <pre id="ex2">Jane Doe -- Chief Executive Officer
+Thank you for joining us today. Revenue grew 12% year over year.
+
+John Smith -- Chief Financial Officer
+Our margins expanded due to cost discipline this quarter.</pre>
+  <button class="copy" data-target="ex2">Copy</button>
+</div>
+
+<div class="example">
+  <h3>3. Full shape: sections, Operator, and an analyst</h3>
+  <p>Section markers (a short line ending in <code>:</code>, e.g. <code>Prepared
+     Remarks:</code>) don't become turns themselves -- they just tag the turns
+     that follow. <code>Operator</code> is a bare header with no title.
+     Analysts often get a three-part header (<code>Name -- Firm -- Analyst</code>);
+     everything after the first <code>" -- "</code> becomes the title, so role
+     classification still finds "Analyst" in it.</p>
+  <pre id="ex3">Prepared Remarks:
+Jane Doe -- Chief Executive Officer
+Thank you for joining us today. Revenue grew 12% year over year.
+
+John Smith -- Chief Financial Officer
+Our margins expanded due to cost discipline this quarter.
+
+Questions and Answers:
+Operator
+Our first question comes from the line of Alex Analyst.
+
+Alex Analyst -- Big Bank -- Analyst
+Can you comment on guidance for next quarter?
+
+Jane Doe -- Chief Executive Officer
+We remain optimistic about the back half of the year.</pre>
+  <button class="copy" data-target="ex3">Copy</button>
+</div>
+
+<a class="back" href="index.html">&larr; Back to the prediction page</a>
+
+<script>
+document.querySelectorAll("button.copy").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const text = document.getElementById(btn.dataset.target).textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      const original = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch (err) {
+      alert("Could not copy automatically -- please select the text manually.");
+    }
+  });
+});
+</script>
+
+</body>
+</html>
